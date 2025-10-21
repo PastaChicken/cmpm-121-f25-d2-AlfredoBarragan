@@ -6,6 +6,8 @@ document.body.innerHTML = `
   <p>Example image asset: <img src="${exampleIconUrl}" class="icon" /></p>
   <canvas id="canvaspad" class="canvas" width="256" height="256"></canvas>
   <button id="drawChanges">DrawChanges</button>
+  <button id="undoBtn" type="button">Undo</button>
+  <button id="redoBtn" type="button">Redo</button> 
 `;
 
 const canvas = document.getElementById("canvaspad") as HTMLCanvasElement;
@@ -14,7 +16,10 @@ const cursor = { active: false, x: 0, y: 0 };
 
 type Point = { x: number; y: number; t: number };
 const strokes: Point[][] = [];
+//needed for step 4
+const redoStacks: Point[][] = [];
 let currentStroke: Point[] | null = null;
+const strokesList = document.getElementById("strokesList") as HTMLUListElement;
 
 // Set drawing properties
 context.strokeStyle = "black";
@@ -23,6 +28,13 @@ context.lineWidth = 1;
 function emitDrawingChanged() {
   const event = new Event("drawingChanged");
   canvas.dispatchEvent(event);
+}
+
+function updateStrokesListUI() {
+  if (!strokesList) return;
+  const breakdown = strokes.map((s) => s.length).join(", ") || "none";
+  strokesList.textContent =
+    `Strokes: ${strokes.length} | Redo: ${redoStacks.length} | lengths: ${breakdown}`;
 }
 
 // Canvas mouse event listeners
@@ -38,6 +50,7 @@ canvas.addEventListener("mousedown", (e) => {
 
   //notify drawing changed
   // emitDrawingChanged();
+  updateStrokesListUI;
 });
 
 canvas.addEventListener("mouseup", (_e) => {
@@ -55,6 +68,7 @@ canvas.addEventListener("mousemove", (e) => {
     currentStroke.push(p);
 
     //emitDrawingChanged();
+    updateStrokesListUI();
 
     //update cursor
     cursor.x = e.offsetX;
@@ -71,13 +85,16 @@ function drawLine(context: { beginPath: () => void; moveTo: (arg0: any, arg1: an
   context.closePath();
 } */
 
-const clearButton = document.getElementById("drawChanges") as HTMLButtonElement;
-clearButton.addEventListener("click", () => {
+const drawChanges = document.getElementById("drawChanges") as HTMLButtonElement;
+drawChanges.addEventListener("click", () => {
   emitDrawingChanged();
-
+  updateStrokesListUI();
   strokes.length = 0;
   currentStroke = null;
 });
+
+const undoBtn = document.getElementById("undoBtn") as HTMLButtonElement;
+const redoBtn = document.getElementById("redoBtn") as HTMLButtonElement;
 
 canvas.addEventListener("drawingChanged", (_ev) => {
   context.clearRect(0, 0, canvas.width, canvas.height);
@@ -92,4 +109,20 @@ canvas.addEventListener("drawingChanged", (_ev) => {
     context.stroke();
     context.closePath();
   }
+});
+
+undoBtn.addEventListener("click", () => {
+  if (strokes.length === 0) return;
+  const last = strokes.pop()!;
+  redoStacks.push(last);
+  emitDrawingChanged();
+  updateStrokesListUI();
+});
+
+redoBtn.addEventListener("click", () => {
+  if (redoStacks.length === 0) return;
+  const restored = redoStacks.pop()!;
+  strokes.push(restored);
+  emitDrawingChanged();
+  updateStrokesListUI();
 });
