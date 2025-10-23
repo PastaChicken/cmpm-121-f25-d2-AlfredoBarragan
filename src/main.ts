@@ -25,15 +25,6 @@ document.body.innerHTML = `
 `;
 
 const canvas = document.getElementById("canvaspad") as HTMLCanvasElement;
-//code before step 5
-/*
-type Point = { x: number; y: number; t: number };
-const strokes: Point[][] = [];
-//needed for step 4
-const redoStacks: Point[][] = [];
-let currentStroke: Point[] | null = null;
-*/
-
 const context = canvas.getContext("2d")!;
 const cursor = { active: false, x: 0, y: 0 };
 
@@ -52,6 +43,13 @@ const thicknessDisplay = document.getElementById(
 const thickerBtn = document.getElementById("thicker") as HTMLButtonElement;
 const thinnerBtn = document.getElementById("thinner") as HTMLButtonElement;
 
+//for tool preview
+const HOVER_EMIT_INTERVAL = 100; // ms
+let isHovering = false;
+let lastHoverEmit = 0;
+let hoverX = 0;
+let hoverY = 0;
+
 function updateThicknessUI() {
   if (!thicknessDisplay) return;
   thicknessDisplay.textContent = DrawableObj.getStrokeWidth().toString();
@@ -69,6 +67,36 @@ function updateStrokesListUI() {
   const breakdown = DrawableObj.strokeLengths().join(", ") || "none";
   strokesList.textContent =
     `Strokes: ${DrawableObj.strokeCount()} | Redo: ${DrawableObj.redoCount()} | lengths: ${breakdown}`;
+}
+
+function emitOnHoveringInCanvas(x?: number, y?: number, inside = false) {
+  const event = new CustomEvent("hoveringInCanvas", {
+    detail: { x, y, inside },
+  });
+  canvas.dispatchEvent(event);
+}
+
+// Draw function with hover preview
+function drawAndPreview() {
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  DrawableObj.draw(context);
+
+  // draw hover preview only when pointer is inside the canvas
+  if (!isHovering) return;
+
+  const w = Math.max(1, DrawableObj.getStrokeWidth());
+  const r = w / 2;
+
+  context.save();
+  context.beginPath();
+  context.fillStyle = "rgba(0,0,0,0.12)"; // faint fill
+  context.strokeStyle = "rgba(0,0,0,0.5)"; // faint outline
+  context.lineWidth = 1;
+  context.arc(hoverX, hoverY, r, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+  context.closePath();
+  context.restore();
 }
 
 // Canvas mouse event listeners
@@ -95,8 +123,50 @@ canvas.addEventListener("mousemove", (e) => {
 });
 
 canvas.addEventListener("drawingChanged", (_ev) => {
-  context.clearRect(0, 0, canvas.width, canvas.height);
-  DrawableObj.draw(context);
+  //context.clearRect(0, 0, canvas.width, canvas.height);
+  // DrawableObj.draw(context);
+  drawAndPreview();
+});
+
+canvas.addEventListener("hoveringInCanvas", (_ev) => {
+  // Placeholder for hover-related functionality
+  const detail = (_ev as CustomEvent).detail as {
+    x?: number;
+    y?: number;
+    inside: boolean;
+  };
+  if (detail.x !== undefined && detail.y !== undefined) {
+    hoverX = detail.x;
+    hoverY = detail.y;
+  }
+  isHovering = !!detail.inside;
+  // For example, you could show a preview of the brush at (detail.hoverX, detail.hoverY)
+  drawAndPreview();
+});
+
+canvas.addEventListener("pointerenter", (e) => {
+  isHovering = true;
+  hoverX = e.offsetX;
+  hoverY = e.offsetY;
+  drawAndPreview();
+  emitOnHoveringInCanvas(hoverX, hoverY, true);
+});
+
+canvas.addEventListener("pointerleave", (_e) => {
+  isHovering = false;
+  drawAndPreview();
+  emitOnHoveringInCanvas(undefined, undefined, false);
+});
+
+canvas.addEventListener("pointermove", (e) => {
+  hoverX = e.offsetX;
+  hoverY = e.offsetY;
+  drawAndPreview();
+  const now = Date.now();
+  if (now - lastHoverEmit > HOVER_EMIT_INTERVAL) {
+    lastHoverEmit = now;
+    emitOnHoveringInCanvas(hoverX, hoverY, true);
+  }
 });
 
 // Button event listeners
