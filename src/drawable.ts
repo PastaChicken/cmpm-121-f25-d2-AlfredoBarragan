@@ -4,24 +4,40 @@ export interface Drawable {
   draw(ctx: CanvasRenderingContext2D): void;
 }
 
+type Stroke = {
+  points: Point[];
+  width: number;
+  color?: string;
+};
+
 export class DrawableClass implements Drawable {
-  private strokes: Point[][] = [];
-  private redoStacks: Point[][] = [];
-  private currentStroke: Point[] | null = null;
+  private strokes: Stroke[] = [];
+  private redoStacks: Stroke[] = [];
+  private currentStroke: Stroke | null = null;
+  private currentWidth = 1;
+  private currentColor = "#000";
+
+  setStrokeWidth(w: number) {
+    this.currentWidth = Math.max(1, Math.round(w));
+  }
+
+  getStrokeWidth() {
+    return this.currentWidth;
+  }
 
   begin(x: number, y: number) {
-    this.currentStroke = [];
-    const p: Point = { x, y, t: Date.now() };
-    this.currentStroke.push(p);
+    this.currentStroke = {
+      points: [{ x, y, t: Date.now() }],
+      width: this.currentWidth,
+      color: this.currentColor,
+    };
     this.strokes.push(this.currentStroke);
-    //starting a new stroke invalidates redo?
-    this.redoStacks.length = 0;
+    this.redoStacks.length = 0; // Clear redo stack on new stroke
   }
 
   drag(x: number, y: number) {
     if (!this.currentStroke) return;
-    const p: Point = { x, y, t: Date.now() };
-    this.currentStroke.push(p);
+    this.currentStroke.points.push({ x, y, t: Date.now() });
   }
 
   end() {
@@ -54,19 +70,22 @@ export class DrawableClass implements Drawable {
   }
 
   strokeLengths() {
-    return this.strokes.map((s) => s.length);
+    return this.strokes.map((s) => s.points.length);
   }
 
   draw(ctx: CanvasRenderingContext2D) {
-    if (!ctx) return;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
 
     for (const stroke of this.strokes) {
-      if (!stroke || stroke.length === 0) continue;
+      if (!stroke || stroke.points.length === 0) continue;
       ctx.beginPath();
-      ctx.moveTo(stroke[0].x, stroke[0].y);
-      for (let i = 1; i < stroke.length; i++) {
-        ctx.lineTo(stroke[i].x, stroke[i].y);
+      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+      for (let i = 1; i < stroke.points.length; i++) {
+        ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
       }
+      ctx.strokeStyle = stroke.color ?? "#000";
+      ctx.lineWidth = stroke.width;
       ctx.stroke();
       ctx.closePath();
     }

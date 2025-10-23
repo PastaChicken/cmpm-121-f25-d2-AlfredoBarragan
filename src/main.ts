@@ -3,20 +3,23 @@ import "./style.css";
 //recommed to create drawable.ts file and define Drawable interface there
 //for cleaner code :)
 import { DrawableClass } from "./drawable.ts";
-/*
-class Drawable implements Drawable {
-  constructor(private imageUrl: string) { }
 
-  display(ctx: CanvasRenderingContext2D): void {
-
-  }
-}
-*/
 document.body.innerHTML = `
  <h1> Insert Title Here 1 </h1>
   <p>Example image asset: <img src="${exampleIconUrl}" class="icon" /></p>
-  <canvas id="canvaspad" class="canvas" width="256" height="256"></canvas>
+  <div style="display:flex;gap:12px;align-items:flex-start">
+    <canvas id="canvaspad" class="canvas" width="256" height="256"></canvas>
+    <div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <button id="thinner" type="button">-</button>
+        <span id="thicknessDisplay">1</span>
+        <button id="thicker" type="button">+</button>
+      </div>
+      <div id="strokesList" aria-live="polite">Strokes: 0</div>
+    </div>
+  </div>
   <button id="drawChanges" type="button">DrawChanges</button>
+  <button id="clearBtn" type="button">Clear</button>
   <button id="undoBtn" type="button">Undo</button>
   <button id="redoBtn" type="button">Redo</button> 
 `;
@@ -35,11 +38,26 @@ const context = canvas.getContext("2d")!;
 const cursor = { active: false, x: 0, y: 0 };
 
 const DrawableObj = new DrawableClass();
+//initalize all variables used for UI
 const strokesList = document.getElementById("strokesList") as HTMLUListElement;
+const undoBtn = document.getElementById("undoBtn") as HTMLButtonElement;
+const redoBtn = document.getElementById("redoBtn") as HTMLButtonElement;
+const drawChangesBtn = document.getElementById(
+  "drawChanges",
+) as HTMLButtonElement;
+const clearBtn = document.getElementById("clearBtn") as HTMLButtonElement;
+const thicknessDisplay = document.getElementById(
+  "thicknessDisplay",
+) as HTMLSpanElement;
+const thickerBtn = document.getElementById("thicker") as HTMLButtonElement;
+const thinnerBtn = document.getElementById("thinner") as HTMLButtonElement;
+
+function updateThicknessUI() {
+  if (!thicknessDisplay) return;
+  thicknessDisplay.textContent = DrawableObj.getStrokeWidth().toString();
+}
 
 // Set drawing properties
-context.strokeStyle = "black";
-context.lineWidth = 1;
 
 function emitDrawingChanged() {
   const event = new Event("drawingChanged");
@@ -47,11 +65,6 @@ function emitDrawingChanged() {
 }
 
 function updateStrokesListUI() {
-  /*
-
-  const breakdown = strokes.map((s) => s.length).join(", ") || "none";
-  strokesList.textContent =
-    `Strokes: ${strokes.length} | Redo: ${redoStacks.length} | lengths: ${breakdown}`; */
   if (!strokesList) return;
   const breakdown = DrawableObj.strokeLengths().join(", ") || "none";
   strokesList.textContent =
@@ -63,56 +76,23 @@ canvas.addEventListener("mousedown", (e) => {
   cursor.active = true;
   cursor.x = e.offsetX;
   cursor.y = e.offsetY;
-
-  /*
-  currentStroke = [];
-  const p: Point = { x: cursor.x, y: cursor.y, t: Date.now() };
-  currentStroke.push(p);
-  strokes.push(currentStroke);
-
-  //notify drawing changed
-  // emitDrawingChanged();
-  updateStrokesListUI(); */
   DrawableObj.begin(cursor.x, cursor.y);
-  // emitDrawingChanged();
   updateStrokesListUI();
 });
 
 canvas.addEventListener("mouseup", (_e) => {
   cursor.active = false;
-
-  // currentStroke = null;
   DrawableObj.end();
 });
 
 canvas.addEventListener("mousemove", (e) => {
   if (cursor.active) {
-    //draw line
-    //  drawLine(context, cursor.x, cursor.y, e.offsetX, e.offsetY);
-    //save point
-    /* const p: Point = { x: e.offsetX, y: e.offsetY, t: Date.now() };
-    currentStroke.push(p);
-
-    //emitDrawingChanged();
-    updateStrokesListUI(); */
-
-    //update cursor
     DrawableObj.drag(e.offsetX, e.offsetY);
-    // emitDrawingChanged();
     updateStrokesListUI();
     cursor.x = e.offsetX;
     cursor.y = e.offsetY;
   }
 });
-
-/*
-function drawLine(context: { beginPath: () => void; moveTo: (arg0: any, arg1: any) => void; lineTo: (arg0: any, arg1: any) => void; stroke: () => void; closePath: () => void; }, x1: any, y1: any, x2: any, y2: any) {
-  context.beginPath();
-  context.moveTo(x1, y1);
-  context.lineTo(x2, y2);
-  context.stroke();
-  context.closePath();
-} */
 
 canvas.addEventListener("drawingChanged", (_ev) => {
   context.clearRect(0, 0, canvas.width, canvas.height);
@@ -120,14 +100,15 @@ canvas.addEventListener("drawingChanged", (_ev) => {
 });
 
 // Button event listeners
-const undoBtn = document.getElementById("undoBtn") as HTMLButtonElement;
-const redoBtn = document.getElementById("redoBtn") as HTMLButtonElement;
-const drawChangesBtn = document.getElementById(
-  "drawChanges",
-) as HTMLButtonElement;
 
 drawChangesBtn.addEventListener("click", () => {
   emitDrawingChanged();
+});
+
+clearBtn.addEventListener("click", () => {
+  DrawableObj.clear();
+  emitDrawingChanged();
+  updateStrokesListUI();
 });
 
 undoBtn.addEventListener("click", () => {
@@ -140,4 +121,14 @@ redoBtn.addEventListener("click", () => {
   DrawableObj.redo();
   emitDrawingChanged();
   updateStrokesListUI();
+});
+
+thickerBtn.addEventListener("click", () => {
+  DrawableObj.setStrokeWidth(DrawableObj.getStrokeWidth() + 1);
+  updateThicknessUI();
+});
+
+thinnerBtn.addEventListener("click", () => {
+  DrawableObj.setStrokeWidth(Math.max(1, DrawableObj.getStrokeWidth() - 1));
+  updateThicknessUI();
 });
