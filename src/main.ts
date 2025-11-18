@@ -214,6 +214,7 @@ document.body.innerHTML = `
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
         <button id="toolDraw" type="button">Draw</button>
         <div id="stickerButtons" style="display:flex;gap:6px"></div>
+        <button id="addStickerBtn" type="button" title="Add custom sticker">+Sticker</button>
       </div>
       <div id="strokesList" aria-live="polite">Strokes: 0</div>
     </div>
@@ -267,11 +268,11 @@ let lastHoverEmit = 0;
 let hoverX = 0;
 let hoverY = 0;
 // stickers definition — single source of truth for available stickers
-const STICKERS = [
+const STICKERS: { id: string; label: string; size: number }[] = [
   { id: "stickerA", label: "🍕", size: 48 },
   { id: "stickerB", label: "🍝", size: 48 },
   { id: "stickerC", label: "🥖", size: 48 },
-] as const;
+];
 
 let currentTool: string = "draw";
 
@@ -462,6 +463,34 @@ if (stickerContainer) {
       updateStrokesListUI();
     });
     stickerContainer.appendChild(btn);
+  }
+  // wire the Add Sticker button to prompt the user and append a new sticker
+  const addStickerBtnEl = document.getElementById(
+    "addStickerBtn",
+  ) as HTMLButtonElement | null;
+  if (addStickerBtnEl) {
+    addStickerBtnEl.addEventListener("click", () => {
+      const label = prompt("Enter sticker text (emoji or text):", "⭐");
+      if (!label) return;
+      const sizeInput = prompt("Enter size in px (8-256):", "48");
+      const size = Math.min(256, Math.max(8, Number(sizeInput) || 48));
+      const id = "sticker_" + Math.random().toString(36).slice(2, 9);
+      const def = { id, label, size };
+      STICKERS.push(def);
+      // create button for new sticker
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.id = id;
+      btn.textContent = label;
+      btn.title = label;
+      btn.addEventListener("click", () => {
+        currentTool = id;
+        toolDrawBtn.disabled = false;
+        emitDrawingChanged();
+        updateStrokesListUI();
+      });
+      stickerContainer.appendChild(btn);
+    });
   }
 }
 
