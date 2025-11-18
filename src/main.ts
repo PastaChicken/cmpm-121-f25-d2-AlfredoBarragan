@@ -1,8 +1,8 @@
 import "./style.css";
 
-export type Point = { x: number; y: number; t: number };
+type Point = { x: number; y: number; t: number };
 
-export interface Drawable {
+interface Drawable {
   draw(ctx: CanvasRenderingContext2D): void;
 }
 
@@ -155,9 +155,22 @@ function drawAll() {
   for (const d of drawables) d.draw(context);
 }
 
-// --- Undo/Redo helpers operating on global drawables ---
-function pushDrawable(d: Drawable) {
-  drawables.push(d);
+// pending drawables are user changes not yet committed to the visible canvas
+const pendingDrawables: Drawable[] = [];
+
+// push into pending (new uncommitted changes)
+function pushPending(d: Drawable) {
+  pendingDrawables.push(d);
+  // notify UI (committed drawables unchanged)
+  updateStrokesListUI();
+}
+
+// commit pending changes to visible drawables (called by DrawChanges)
+function commitPending() {
+  if (pendingDrawables.length === 0) return;
+  // move pending into committed drawables, preserving order
+  drawables.push(...pendingDrawables);
+  pendingDrawables.length = 0;
   // new action invalidates redo history
   redoStack.length = 0;
   emitDrawingChanged();
@@ -182,6 +195,7 @@ function redoAction() {
 
 function clearAll() {
   drawables.length = 0;
+  pendingDrawables.length = 0;
   redoStack.length = 0;
   emitDrawingChanged();
   updateStrokesListUI();
@@ -199,9 +213,7 @@ document.body.innerHTML = `
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
         <button id="toolDraw" type="button">Draw</button>
-        <button id="stickerA" type="button">🍕</button>
-        <button id="stickerB" type="button">🍝</button>
-        <button id="stickerC" type="button">🥖</button>
+        <div id="stickerButtons" style="display:flex;gap:6px"></div>
       </div>
       <div id="strokesList" aria-live="polite">Strokes: 0</div>
     </div>
@@ -246,12 +258,7 @@ const thicknessDisplay = document.getElementById(
 ) as HTMLSpanElement;
 const thickerBtn = document.getElementById("thicker") as HTMLButtonElement;
 const thinnerBtn = document.getElementById("thinner") as HTMLButtonElement;
-const stickerABtn = document.getElementById("stickerA") as HTMLButtonElement ||
-  document.getElementById("🍕");
-const stickerBBtn = document.getElementById("stickerB") as HTMLButtonElement ||
-  document.getElementById("🍝");
-const stickerCBtn = document.getElementById("stickerC") as HTMLButtonElement ||
-  document.getElementById("🥖");
+// Stickers are defined in one place below and used to generate buttons/UI
 const toolDrawBtn = document.getElementById("toolDraw") as HTMLButtonElement;
 //for tool preview
 const HOVER_EMIT_INTERVAL = 100; // ms
@@ -259,7 +266,14 @@ let isHovering = false;
 let lastHoverEmit = 0;
 let hoverX = 0;
 let hoverY = 0;
-let currentTool: "draw" | "stickerA" | "stickerB" | "stickerC" = "draw";
+// stickers definition — single source of truth for available stickers
+const STICKERS = [
+  { id: "stickerA", label: "🍕", size: 48 },
+  { id: "stickerB", label: "🍝", size: 48 },
+  { id: "stickerC", label: "🥖", size: 48 },
+] as const;
+
+let currentTool: string = "draw";
 
 function updateThicknessUI() {
   if (!thicknessDisplay) return;
@@ -313,15 +327,17 @@ function drawAndPreview() {
     context.stroke();
     context.closePath();
     context.restore();
-  } else if (currentTool === "stickerA") {
-    context.font = "24px sans-serif";
-    context.fillText("🍕", hoverX - 12, hoverY + 12);
-  } else if (currentTool === "stickerB") {
-    context.font = "24px sans-serif";
-    context.fillText("🍝", hoverX - 12, hoverY + 12);
-  } else if (currentTool === "stickerC") {
-    context.font = "24px sans-serif";
-    context.fillText("🥖", hoverX - 12, hoverY + 12);
+  } else {
+    // if a sticker tool is selected, show its label as a preview
+    const sticker = STICKERS.find((x) => x.id === currentTool);
+    if (sticker) {
+      context.font = `${Math.max(16, sticker.size / 2)}px sans-serif`;
+      context.fillText(
+        sticker.label,
+        hoverX - sticker.size / 4,
+        hoverY + sticker.size / 4,
+      );
+    }
   }
 }
 
@@ -331,27 +347,23 @@ canvas.addEventListener("mousedown", (e) => {
   if (currentTool === "draw") {
     const stroke = makeStrokeDrawable(getStrokeWidth());
     stroke.points.push({ x: e.offsetX, y: e.offsetY, t: Date.now() });
-    pushDrawable(stroke);
+    pushPending(stroke);
     currentDrawable = stroke;
     return;
   }
 
   // sticker placement
-  if (currentTool === "stickerA") {
-    const s = makeStickerDrawable("🍕", e.offsetX, e.offsetY, 48, 48);
-    pushDrawable(s);
-    drawAndPreview();
-    return;
-  }
-  if (currentTool === "stickerB") {
-    const s = makeStickerDrawable("🍝", e.offsetX, e.offsetY, 48, 48);
-    pushDrawable(s);
-    drawAndPreview();
-    return;
-  }
-  if (currentTool === "stickerC") {
-    const s = makeStickerDrawable("🥖", e.offsetX, e.offsetY, 48, 48);
-    pushDrawable(s);
+  // sticker placement — look up sticker by id in STICKERS
+  const sticker = STICKERS.find((s) => s.id === currentTool);
+  if (sticker) {
+    const s = makeStickerDrawable(
+      sticker.label,
+      e.offsetX,
+      e.offsetY,
+      sticker.size,
+      sticker.size,
+    );
+    pushPending(s);
     drawAndPreview();
     return;
   }
@@ -418,7 +430,10 @@ canvas.addEventListener("pointermove", (e) => {
 
 // Button event listeners
 
-drawChangesBtn.addEventListener("click", () => emitDrawingChanged());
+// DrawChanges commits pending changes to the visible canvas
+drawChangesBtn.addEventListener("click", () => {
+  commitPending();
+});
 
 clearBtn.addEventListener("click", () => clearAll());
 
@@ -431,26 +446,24 @@ toolDrawBtn.addEventListener("click", () => {
   toolDrawBtn.disabled = true;
 });
 
-stickerABtn?.addEventListener("click", () => {
-  currentTool = "stickerA";
-  toolDrawBtn.disabled = false;
-  emitDrawingChanged();
-  updateStrokesListUI();
-});
-
-stickerBBtn?.addEventListener("click", () => {
-  currentTool = "stickerB";
-  toolDrawBtn.disabled = false;
-  emitDrawingChanged();
-  updateStrokesListUI();
-});
-
-stickerCBtn?.addEventListener("click", () => {
-  currentTool = "stickerC";
-  toolDrawBtn.disabled = false;
-  emitDrawingChanged();
-  updateStrokesListUI();
-});
+// populate sticker buttons from STICKERS array
+const stickerContainer = document.getElementById("stickerButtons");
+if (stickerContainer) {
+  for (const s of STICKERS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = s.id;
+    btn.textContent = s.label;
+    btn.title = s.label;
+    btn.addEventListener("click", () => {
+      currentTool = s.id;
+      toolDrawBtn.disabled = false;
+      emitDrawingChanged();
+      updateStrokesListUI();
+    });
+    stickerContainer.appendChild(btn);
+  }
+}
 
 updateThicknessUI();
 
