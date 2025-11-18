@@ -1,7 +1,4 @@
 import "./style.css";
-//recommed to create drawable.ts file and define Drawable interface there
-//for cleaner code :)
-// Drawable implementation inlined from `drawable.ts` (moved here and refactored)
 
 export type Point = { x: number; y: number; t: number };
 
@@ -158,6 +155,38 @@ function drawAll() {
   for (const d of drawables) d.draw(context);
 }
 
+// --- Undo/Redo helpers operating on global drawables ---
+function pushDrawable(d: Drawable) {
+  drawables.push(d);
+  // new action invalidates redo history
+  redoStack.length = 0;
+  emitDrawingChanged();
+  updateStrokesListUI();
+}
+
+function undoAction() {
+  if (drawables.length === 0) return;
+  const last = drawables.pop()!;
+  redoStack.push(last);
+  emitDrawingChanged();
+  updateStrokesListUI();
+}
+
+function redoAction() {
+  if (redoStack.length === 0) return;
+  const restored = redoStack.pop()!;
+  drawables.push(restored);
+  emitDrawingChanged();
+  updateStrokesListUI();
+}
+
+function clearAll() {
+  drawables.length = 0;
+  redoStack.length = 0;
+  emitDrawingChanged();
+  updateStrokesListUI();
+}
+
 document.body.innerHTML = `
   <h1> Insert Title Here 1 </h1>
   <div style="display:flex;gap:12px;align-items:flex-start">
@@ -302,37 +331,27 @@ canvas.addEventListener("mousedown", (e) => {
   if (currentTool === "draw") {
     const stroke = makeStrokeDrawable(getStrokeWidth());
     stroke.points.push({ x: e.offsetX, y: e.offsetY, t: Date.now() });
-    drawables.push(stroke);
-    // starting a new action clears redo history
-    redoStack.length = 0;
+    pushDrawable(stroke);
     currentDrawable = stroke;
-    updateStrokesListUI();
-    drawAndPreview();
     return;
   }
 
   // sticker placement
   if (currentTool === "stickerA") {
     const s = makeStickerDrawable("🍕", e.offsetX, e.offsetY, 48, 48);
-    drawables.push(s);
-    redoStack.length = 0;
-    updateStrokesListUI();
+    pushDrawable(s);
     drawAndPreview();
     return;
   }
   if (currentTool === "stickerB") {
     const s = makeStickerDrawable("🍝", e.offsetX, e.offsetY, 48, 48);
-    drawables.push(s);
-    redoStack.length = 0;
-    updateStrokesListUI();
+    pushDrawable(s);
     drawAndPreview();
     return;
   }
   if (currentTool === "stickerC") {
     const s = makeStickerDrawable("🥖", e.offsetX, e.offsetY, 48, 48);
-    drawables.push(s);
-    redoStack.length = 0;
-    updateStrokesListUI();
+    pushDrawable(s);
     drawAndPreview();
     return;
   }
@@ -401,28 +420,11 @@ canvas.addEventListener("pointermove", (e) => {
 
 drawChangesBtn.addEventListener("click", () => emitDrawingChanged());
 
-clearBtn.addEventListener("click", () => {
-  drawables.length = 0;
-  redoStack.length = 0;
-  emitDrawingChanged();
-  updateStrokesListUI();
-});
+clearBtn.addEventListener("click", () => clearAll());
 
-undoBtn.addEventListener("click", () => {
-  if (drawables.length === 0) return;
-  const last = drawables.pop()!;
-  redoStack.push(last);
-  emitDrawingChanged();
-  updateStrokesListUI();
-});
+undoBtn.addEventListener("click", () => undoAction());
 
-redoBtn.addEventListener("click", () => {
-  if (redoStack.length === 0) return;
-  const restored = redoStack.pop()!;
-  drawables.push(restored);
-  emitDrawingChanged();
-  updateStrokesListUI();
-});
+redoBtn.addEventListener("click", () => redoAction());
 
 toolDrawBtn.addEventListener("click", () => {
   currentTool = "draw";
