@@ -220,6 +220,7 @@ document.body.innerHTML = `
     </div>
   </div>
   <button id="drawChanges" type="button">DrawChanges</button>
+  <button id="exportBtn" type="button">Export</button>
   <button id="clearBtn" type="button">Clear</button>
   <button id="undoBtn" type="button">Undo</button>
   <button id="redoBtn" type="button">Redo</button> 
@@ -253,6 +254,7 @@ const redoBtn = document.getElementById("redoBtn") as HTMLButtonElement;
 const drawChangesBtn = document.getElementById(
   "drawChanges",
 ) as HTMLButtonElement;
+const exportBtn = document.getElementById("exportBtn") as HTMLButtonElement;
 const clearBtn = document.getElementById("clearBtn") as HTMLButtonElement;
 const thicknessDisplay = document.getElementById(
   "thicknessDisplay",
@@ -304,6 +306,43 @@ function emitOnHoveringInCanvas(x?: number, y?: number, inside = false) {
     detail: { x, y, inside },
   });
   canvas.dispatchEvent(event);
+}
+
+// Export current committed drawables to a 1024x1024 PNG file.
+function exportDisplayAsPNG() {
+  const TARGET = 1024;
+  const off = document.createElement("canvas");
+  off.width = TARGET;
+  off.height = TARGET;
+  const ctx = off.getContext("2d");
+  if (!ctx) return;
+
+  // Clear and prepare scaling so existing drawing commands (designed for
+  // the on-screen canvas size) fill the larger canvas.
+  ctx.clearRect(0, 0, off.width, off.height);
+  const scale = off.width / canvas.width;
+  ctx.save();
+  ctx.scale(scale, scale);
+
+  // Draw only committed drawables
+  for (const d of drawables) {
+    try {
+      d.draw(ctx);
+    } catch (_err) {
+      // ignore drawing errors per-item to avoid aborting export
+    }
+  }
+
+  ctx.restore();
+
+  // Trigger download as PNG
+  const dataUrl = off.toDataURL("image/png");
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = "High-Resolution-Export.png";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 // Draw function with hover preview
@@ -435,6 +474,10 @@ canvas.addEventListener("pointermove", (e) => {
 drawChangesBtn.addEventListener("click", () => {
   commitPending();
 });
+
+if (exportBtn) {
+  exportBtn.addEventListener("click", () => exportDisplayAsPNG());
+}
 
 clearBtn.addEventListener("click", () => clearAll());
 
