@@ -48,6 +48,7 @@ type StickerDrawable = {
   y: number;
   w: number;
   h: number;
+  rotation?: number; // degrees
   draw(ctx: CanvasRenderingContext2D): void;
 };
 
@@ -86,6 +87,7 @@ function makeStickerDrawable(
   y: number,
   w = DEFAULT_STICKER_SIZE,
   h = DEFAULT_STICKER_SIZE,
+  rotation = 0,
 ): StickerDrawable {
   return {
     type: "sticker",
@@ -94,9 +96,14 @@ function makeStickerDrawable(
     y,
     w,
     h,
+    rotation,
     draw(ctx: CanvasRenderingContext2D) {
-      const dx = x - w / 2;
-      const dy = y - h / 2;
+      const rad = ((rotation ?? 0) * Math.PI) / 180;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(rad);
+      const dx = -w / 2;
+      const dy = -h / 2;
       if (typeof img === "string") {
         if (img.startsWith("data:") || img.startsWith("http")) {
           const im = new Image();
@@ -111,7 +118,7 @@ function makeStickerDrawable(
           ctx.font = `${h}px serif`;
           ctx.textBaseline = "middle";
           ctx.textAlign = "center";
-          ctx.fillText(String(img), x, y);
+          ctx.fillText(String(img), 0, 0);
           ctx.restore();
         }
       } else {
@@ -121,6 +128,7 @@ function makeStickerDrawable(
           // not ready
         }
       }
+      ctx.restore();
     },
   };
 }
@@ -189,6 +197,11 @@ document.body.innerHTML = `
         <input id="sliderB" type="range" min="0" max="255" value="0">
         <div id="colorSwatch" title="Brush color preview" style="width:28px;height:28px;border:1px solid #ccc;margin-left:8px;background:${DEFAULT_STROKE_COLOR};"></div>
       </div>
+      <div class="controls-row" id="stickerRotateRow">
+        <label for="stickerRotate">Rotate</label>
+        <input id="stickerRotate" type="range" min="0" max="360" value="0">
+        <span id="rotateDisplay">0°</span>
+      </div>
       <div id="strokesList" class="strokes-list" aria-live="polite">Strokes: 0</div>
     </div>
   </div>
@@ -245,6 +258,15 @@ const sliderB = document.getElementById("sliderB") as HTMLInputElement | null;
 const colorSwatch = document.getElementById("colorSwatch") as
   | HTMLDivElement
   | null;
+const stickerRotate = document.getElementById("stickerRotate") as
+  | HTMLInputElement
+  | null;
+const rotateDisplay = document.getElementById("rotateDisplay") as
+  | HTMLSpanElement
+  | null;
+const stickerRotateRow = document.getElementById("stickerRotateRow") as
+  | HTMLDivElement
+  | null;
 //for tool preview
 const HOVER_EMIT_INTERVAL = 100; // ms
 let isHovering = false;
@@ -259,6 +281,7 @@ const STICKERS: { id: string; label: string; size: number }[] = [
 ];
 
 let currentTool: string = "draw";
+let currentStickerRotation = 0; // degrees
 
 function updateThicknessUI() {
   if (!thicknessDisplay) return;
@@ -282,6 +305,13 @@ function updateColorFromSliders() {
   setStrokeColor(hex);
   if (colorSwatch) colorSwatch.style.background = hex;
   drawAndPreview();
+}
+
+// Show or hide the sticker rotation controls depending on the selected tool
+function updateStickerRotateVisibility() {
+  if (!stickerRotateRow) return;
+  const isStickerTool = STICKERS.some((s) => s.id === currentTool);
+  stickerRotateRow.style.display = isStickerTool ? "flex" : "none";
 }
 
 // Set drawing properties
@@ -389,14 +419,17 @@ function drawAndPreview() {
     // if a sticker tool is selected, show its label as a preview
     const sticker = STICKERS.find((x) => x.id === currentTool);
     if (sticker) {
+      const rad = (currentStickerRotation * Math.PI) / 180;
+      context.save();
+      context.translate(hoverX, hoverY);
+      context.rotate(rad);
       context.font = `${
         Math.max(MIN_STICKER_PREVIEW_FONT, sticker.size / 2)
       }px sans-serif`;
-      context.fillText(
-        sticker.label,
-        hoverX - sticker.size / 4,
-        hoverY + sticker.size / 4,
-      );
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(sticker.label, 0, 0);
+      context.restore();
     }
   }
 }
@@ -421,6 +454,7 @@ canvas.addEventListener("mousedown", (e) => {
       e.offsetY,
       sticker.size,
       sticker.size,
+      currentStickerRotation,
     );
     pushPending(s);
     return;
@@ -500,6 +534,7 @@ redoBtn.addEventListener("click", () => redoAction());
 toolDrawBtn.addEventListener("click", () => {
   currentTool = "draw";
   toolDrawBtn.disabled = true;
+  updateStickerRotateVisibility();
 });
 
 // populate sticker buttons from STICKERS array
@@ -514,6 +549,12 @@ if (stickerContainer) {
     btn.addEventListener("click", () => {
       currentTool = s.id;
       toolDrawBtn.disabled = false;
+      // reset rotation for the newly-selected sticker
+      if (stickerRotate) stickerRotate.value = String(0);
+      currentStickerRotation = 0;
+      if (rotateDisplay) rotateDisplay.textContent = "0°";
+      updateStickerRotateVisibility();
+      drawAndPreview();
       emitDrawingChanged();
       updateStrokesListUI();
     });
@@ -525,6 +566,19 @@ if (stickerContainer) {
   if (sliderG) sliderG.value = String(0);
   if (sliderB) sliderB.value = String(0);
   if (colorSwatch) colorSwatch.style.background = currentStrokeColor;
+
+  // initialize sticker rotation UI
+  if (stickerRotate) stickerRotate.value = String(0);
+  if (rotateDisplay) rotateDisplay.textContent = "0°";
+  if (stickerRotate) {
+    stickerRotate.addEventListener("input", () => {
+      currentStickerRotation = Number(stickerRotate.value) || 0;
+      if (rotateDisplay) {
+        rotateDisplay.textContent = `${currentStickerRotation}°`;
+      }
+      drawAndPreview();
+    });
+  }
 
   if (sliderR) sliderR.addEventListener("input", updateColorFromSliders);
   if (sliderG) sliderG.addEventListener("input", updateColorFromSliders);
@@ -557,6 +611,12 @@ if (stickerContainer) {
       btn.addEventListener("click", () => {
         currentTool = id;
         toolDrawBtn.disabled = false;
+        // reset rotation when user selects the newly created sticker
+        if (stickerRotate) stickerRotate.value = String(0);
+        currentStickerRotation = 0;
+        if (rotateDisplay) rotateDisplay.textContent = "0°";
+        updateStickerRotateVisibility();
+        drawAndPreview();
         emitDrawingChanged();
         updateStrokesListUI();
       });
