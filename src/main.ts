@@ -2,23 +2,34 @@ import "./style.css";
 
 type Point = { x: number; y: number; t: number };
 
+// Named constants to remove magic numbers
+const CANVAS_INITIAL_SIZE = 256;
+const DEFAULT_STROKE_WIDTH = 1;
+const MIN_STROKE_WIDTH = 1;
+const DEFAULT_STICKER_SIZE = 48;
+const STICKER_MIN_SIZE = 8;
+const STICKER_MAX_SIZE = 256;
+const EXPORT_CANVAS_SIZE = 1024;
+const MIN_STICKER_PREVIEW_FONT = 16;
+const PREVIEW_STROKE_WIDTH = 1;
+const HOVER_FILL_ALPHA = 0.12;
+const HOVER_STROKE_ALPHA = 0.5;
+
+// Event name constants
+const EVENT_DRAWING_CHANGED = "drawing-changed" as const;
+const EVENT_HOVERING_IN_CANVAS = "hoveringInCanvas" as const;
+
+// Typed event detail for hover events
+// Use explicit `number | undefined` so assignments from optional params type-check
+type HoveringInCanvasDetail = {
+  x: number | undefined;
+  y: number | undefined;
+  inside: boolean;
+};
+
 interface Drawable {
   draw(ctx: CanvasRenderingContext2D): void;
 }
-
-type Stroke = {
-  points: Point[];
-  width: number;
-  color?: string;
-};
-
-type Sticker = {
-  img: HTMLImageElement | string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-};
 
 // Replace class with small factories for Drawable items
 type StrokeDrawable = {
@@ -26,16 +37,6 @@ type StrokeDrawable = {
   points: Point[];
   width: number;
   color?: string;
-  draw(ctx: CanvasRenderingContext2D): void;
-};
-
-type TextDrawable = {
-  type: "text";
-  text: string;
-  x: number;
-  y: number;
-  font?: string;
-  color: string;
   draw(ctx: CanvasRenderingContext2D): void;
 };
 
@@ -74,32 +75,6 @@ function makeStrokeDrawable(width: number, color = "#000"): StrokeDrawable {
   return d;
 }
 
-function _makeTextDrawable(
-  text: string,
-  x: number,
-  y: number,
-  font?: string,
-  color = "#000",
-): TextDrawable {
-  const obj: Partial<TextDrawable> = {
-    type: "text",
-    text,
-    x,
-    y,
-    color,
-    draw(ctx: CanvasRenderingContext2D) {
-      ctx.save();
-      if (font) ctx.font = font;
-      ctx.fillStyle = color;
-      ctx.textBaseline = "top";
-      ctx.fillText(text, x, y);
-      ctx.restore();
-    },
-  };
-  if (font !== undefined) obj.font = font;
-  return obj as TextDrawable;
-}
-
 function isStrokeDrawable(d: Drawable): d is StrokeDrawable {
   return (d as unknown as { type?: string }).type === "stroke";
 }
@@ -108,8 +83,8 @@ function makeStickerDrawable(
   img: HTMLImageElement | string,
   x: number,
   y: number,
-  w = 48,
-  h = 48,
+  w = DEFAULT_STICKER_SIZE,
+  h = DEFAULT_STICKER_SIZE,
 ): StickerDrawable {
   return {
     type: "sticker",
@@ -155,24 +130,13 @@ function drawAll() {
   for (const d of drawables) d.draw(context);
 }
 
-// pending drawables are user changes not yet committed to the visible canvas
-const pendingDrawables: Drawable[] = [];
-
-// push into pending (new uncommitted changes)
+// push directly into the committed drawables (no separate pending buffer)
 function pushPending(d: Drawable) {
-  pendingDrawables.push(d);
-  // notify UI (committed drawables unchanged)
-  updateStrokesListUI();
-}
-
-// commit pending changes to visible drawables (called by DrawChanges)
-function commitPending() {
-  if (pendingDrawables.length === 0) return;
-  // move pending into committed drawables, preserving order
-  drawables.push(...pendingDrawables);
-  pendingDrawables.length = 0;
+  // add new drawable immediately
+  drawables.push(d);
   // new action invalidates redo history
   redoStack.length = 0;
+  // notify UI and redraw
   emitDrawingChanged();
   updateStrokesListUI();
 }
@@ -195,7 +159,6 @@ function redoAction() {
 
 function clearAll() {
   drawables.length = 0;
-  pendingDrawables.length = 0;
   redoStack.length = 0;
   emitDrawingChanged();
   updateStrokesListUI();
@@ -203,28 +166,28 @@ function clearAll() {
 
 document.body.innerHTML = `
   <h1> Insert Title Here 1 </h1>
-  <div style="display:flex;gap:12px;align-items:flex-start">
-    <canvas id="canvaspad" class="canvas" width="256" height="256"></canvas>
-    <div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-        <button id="thinner" type="button">-</button>
-        <span id="thicknessDisplay">1</span>
-        <button id="thicker" type="button">+</button>
+  <div class="app-row">
+    <canvas id="canvaspad" class="canvas" width="${CANVAS_INITIAL_SIZE}" height="${CANVAS_INITIAL_SIZE}"></canvas>
+    <div class="control-panel">
+      <div class="controls-row thickness-row">
+        <button id="thinner" type="button" class="control-button">-</button>
+        <span id="thicknessDisplay" class="thickness-display">${DEFAULT_STROKE_WIDTH}</span>
+        <button id="thicker" type="button" class="control-button">+</button>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-        <button id="toolDraw" type="button">Draw</button>
-        <div id="stickerButtons" style="display:flex;gap:6px"></div>
-        <button id="addStickerBtn" type="button" title="Add custom sticker">+Sticker</button>
+      <div class="controls-row tool-row">
+        <button id="toolDraw" type="button" class="control-button">Draw</button>
+        <div id="stickerButtons" class="sticker-buttons"></div>
+        <button id="addStickerBtn" type="button" title="Add custom sticker" class="control-button">+Sticker</button>
       </div>
-      <div id="strokesList" aria-live="polite">Strokes: 0</div>
+      <div id="strokesList" class="strokes-list" aria-live="polite">Strokes: 0</div>
     </div>
   </div>
-  <button id="drawChanges" type="button">DrawChanges</button>
-  <button id="exportBtn" type="button">Export</button>
-  <button id="clearBtn" type="button">Clear</button>
-  <button id="undoBtn" type="button">Undo</button>
-  <button id="redoBtn" type="button">Redo</button> 
-
+  <div class="action-buttons-row">
+    <button id="exportBtn" type="button" class="control-button">Export</button>
+    <button id="clearBtn" type="button" class="control-button">Clear</button>
+    <button id="undoBtn" type="button" class="control-button">Undo</button>
+    <button id="redoBtn" type="button" class="control-button">Redo</button>
+  </div>
 `;
 
 const canvas = document.getElementById("canvaspad") as HTMLCanvasElement;
@@ -239,9 +202,9 @@ const redoStack: Drawable[] = [];
 let currentDrawable: Drawable | null = null;
 
 // simple stroke width state (replaces DrawableObj.get/set)
-let currentStrokeWidth = 1;
+let currentStrokeWidth = DEFAULT_STROKE_WIDTH;
 function setStrokeWidth(w: number) {
-  currentStrokeWidth = Math.max(1, Math.round(w));
+  currentStrokeWidth = Math.max(MIN_STROKE_WIDTH, Math.round(w));
 }
 function getStrokeWidth() {
   return currentStrokeWidth;
@@ -251,9 +214,7 @@ function getStrokeWidth() {
 const strokesList = document.getElementById("strokesList") as HTMLUListElement;
 const undoBtn = document.getElementById("undoBtn") as HTMLButtonElement;
 const redoBtn = document.getElementById("redoBtn") as HTMLButtonElement;
-const drawChangesBtn = document.getElementById(
-  "drawChanges",
-) as HTMLButtonElement;
+// drawChanges button removed; drawing commits immediately as clarified by TA
 const exportBtn = document.getElementById("exportBtn") as HTMLButtonElement;
 const clearBtn = document.getElementById("clearBtn") as HTMLButtonElement;
 const thicknessDisplay = document.getElementById(
@@ -286,8 +247,24 @@ function updateThicknessUI() {
 // Set drawing properties
 
 function emitDrawingChanged() {
-  const event = new Event("drawingChanged");
+  // Dispatch a typed CustomEvent (no detail payload)
+  const event = new CustomEvent<void>(EVENT_DRAWING_CHANGED);
   canvas.dispatchEvent(event);
+}
+
+// Redraw committed drawables and any pending (in-progress) drawables
+function redrawCommittedAndPending() {
+  // clear canvas
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  // draw committed
+  for (const d of drawables) {
+    try {
+      d.draw(context);
+    } catch (_err) {
+      // ignore per-item draw errors
+    }
+  }
+  // no pending buffer; drawables contains all visible items
 }
 
 function updateStrokesListUI() {
@@ -302,18 +279,19 @@ function updateStrokesListUI() {
 }
 
 function emitOnHoveringInCanvas(x?: number, y?: number, inside = false) {
-  const event = new CustomEvent("hoveringInCanvas", {
-    detail: { x, y, inside },
-  });
+  const detail: HoveringInCanvasDetail = { x, y, inside };
+  const event = new CustomEvent<HoveringInCanvasDetail>(
+    EVENT_HOVERING_IN_CANVAS,
+    { detail },
+  );
   canvas.dispatchEvent(event);
 }
 
 // Export current committed drawables to a 1024x1024 PNG file.
 function exportDisplayAsPNG() {
-  const TARGET = 1024;
   const off = document.createElement("canvas");
-  off.width = TARGET;
-  off.height = TARGET;
+  off.width = EXPORT_CANVAS_SIZE;
+  off.height = EXPORT_CANVAS_SIZE;
   const ctx = off.getContext("2d");
   if (!ctx) return;
 
@@ -355,14 +333,14 @@ function drawAndPreview() {
 
   if (currentTool === "draw") {
     const w = Math.max(1, getStrokeWidth());
-    const r = w / 2;
+    const wSafe = Math.max(MIN_STROKE_WIDTH, w);
 
     context.save();
     context.beginPath();
-    context.fillStyle = "rgba(0,0,0,0.12)"; // faint fill
-    context.strokeStyle = "rgba(0,0,0,0.5)"; // faint outline
-    context.lineWidth = 1;
-    context.arc(hoverX, hoverY, r, 0, Math.PI * 2);
+    context.fillStyle = `rgba(0,0,0,${HOVER_FILL_ALPHA})`; // faint fill
+    context.strokeStyle = `rgba(0,0,0,${HOVER_STROKE_ALPHA})`; // faint outline
+    context.lineWidth = PREVIEW_STROKE_WIDTH;
+    context.arc(hoverX, hoverY, wSafe / 2, 0, Math.PI * 2);
     context.fill();
     context.stroke();
     context.closePath();
@@ -371,7 +349,9 @@ function drawAndPreview() {
     // if a sticker tool is selected, show its label as a preview
     const sticker = STICKERS.find((x) => x.id === currentTool);
     if (sticker) {
-      context.font = `${Math.max(16, sticker.size / 2)}px sans-serif`;
+      context.font = `${
+        Math.max(MIN_STICKER_PREVIEW_FONT, sticker.size / 2)
+      }px sans-serif`;
       context.fillText(
         sticker.label,
         hoverX - sticker.size / 4,
@@ -392,7 +372,6 @@ canvas.addEventListener("mousedown", (e) => {
     return;
   }
 
-  // sticker placement
   // sticker placement — look up sticker by id in STICKERS
   const sticker = STICKERS.find((s) => s.id === currentTool);
   if (sticker) {
@@ -404,7 +383,6 @@ canvas.addEventListener("mousedown", (e) => {
       sticker.size,
     );
     pushPending(s);
-    drawAndPreview();
     return;
   }
 });
@@ -418,28 +396,27 @@ canvas.addEventListener("mousemove", (e) => {
   if (currentDrawable && isStrokeDrawable(currentDrawable)) {
     const stroke = currentDrawable as StrokeDrawable;
     stroke.points.push({ x: e.offsetX, y: e.offsetY, t: Date.now() });
-    drawAndPreview();
+    // notify observer to clear & redraw committed + pending drawables
+    emitDrawingChanged();
     updateStrokesListUI();
   }
 });
 
-canvas.addEventListener("drawingChanged", (_ev) => {
-  drawAndPreview();
+canvas.addEventListener(EVENT_DRAWING_CHANGED, (_ev) => {
+  // When drawing changes we clear and redraw the committed items.
+  // This keeps live drawing responsive while centralizing the redraw logic.
+  redrawCommittedAndPending();
 });
 
-canvas.addEventListener("hoveringInCanvas", (_ev) => {
-  // Placeholder for hover-related functionality
-  const detail = (_ev as CustomEvent).detail as {
-    x?: number;
-    y?: number;
-    inside: boolean;
-  };
+canvas.addEventListener(EVENT_HOVERING_IN_CANVAS, (ev) => {
+  // Hover event is typed; use its detail payload
+  const detail = (ev as CustomEvent<HoveringInCanvasDetail>).detail;
   if (detail.x !== undefined && detail.y !== undefined) {
     hoverX = detail.x;
     hoverY = detail.y;
   }
   isHovering = !!detail.inside;
-  // For example, you could show a preview of the brush at (detail.hoverX, detail.hoverY)
+  // For example, show a preview of the brush at the given coordinates
   drawAndPreview();
 });
 
@@ -469,11 +446,6 @@ canvas.addEventListener("pointermove", (e) => {
 });
 
 // Button event listeners
-
-// DrawChanges commits pending changes to the visible canvas
-drawChangesBtn.addEventListener("click", () => {
-  commitPending();
-});
 
 if (exportBtn) {
   exportBtn.addEventListener("click", () => exportDisplayAsPNG());
@@ -515,8 +487,14 @@ if (stickerContainer) {
     addStickerBtnEl.addEventListener("click", () => {
       const label = prompt("Enter sticker text (emoji or text):", "⭐");
       if (!label) return;
-      const sizeInput = prompt("Enter size in px (8-256):", "48");
-      const size = Math.min(256, Math.max(8, Number(sizeInput) || 48));
+      const sizeInput = prompt(
+        `Enter size in px (${STICKER_MIN_SIZE}-${STICKER_MAX_SIZE}):`,
+        String(DEFAULT_STICKER_SIZE),
+      );
+      const size = Math.min(
+        STICKER_MAX_SIZE,
+        Math.max(STICKER_MIN_SIZE, Number(sizeInput) || DEFAULT_STICKER_SIZE),
+      );
       const id = "sticker_" + Math.random().toString(36).slice(2, 9);
       const def = { id, label, size };
       STICKERS.push(def);
