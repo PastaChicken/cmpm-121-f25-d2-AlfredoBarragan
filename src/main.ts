@@ -6,6 +6,7 @@ type Point = { x: number; y: number; t: number };
 const CANVAS_INITIAL_SIZE = 256;
 const DEFAULT_STROKE_WIDTH = 1;
 const MIN_STROKE_WIDTH = 1;
+const DEFAULT_STROKE_COLOR = "#000000";
 const DEFAULT_STICKER_SIZE = 48;
 const STICKER_MIN_SIZE = 8;
 const STICKER_MAX_SIZE = 256;
@@ -130,7 +131,7 @@ function drawAll() {
   for (const d of drawables) d.draw(context);
 }
 
-// push directly into the committed drawables (no separate pending buffer)
+// push directly into the committed drawables
 function pushPending(d: Drawable) {
   // add new drawable immediately
   drawables.push(d);
@@ -174,10 +175,19 @@ document.body.innerHTML = `
         <span id="thicknessDisplay" class="thickness-display">${DEFAULT_STROKE_WIDTH}</span>
         <button id="thicker" type="button" class="control-button">+</button>
       </div>
-      <div class="controls-row tool-row">
+        <div class="controls-row tool-row">
         <button id="toolDraw" type="button" class="control-button">Draw</button>
         <div id="stickerButtons" class="sticker-buttons"></div>
         <button id="addStickerBtn" type="button" title="Add custom sticker" class="control-button">+Sticker</button>
+      </div>
+      <div class="controls-row" id="rgbControls">
+        <label for="sliderR">R</label>
+        <input id="sliderR" type="range" min="0" max="255" value="0">
+        <label for="sliderG">G</label>
+        <input id="sliderG" type="range" min="0" max="255" value="0">
+        <label for="sliderB">B</label>
+        <input id="sliderB" type="range" min="0" max="255" value="0">
+        <div id="colorSwatch" title="Brush color preview" style="width:28px;height:28px;border:1px solid #ccc;margin-left:8px;background:${DEFAULT_STROKE_COLOR};"></div>
       </div>
       <div id="strokesList" class="strokes-list" aria-live="polite">Strokes: 0</div>
     </div>
@@ -203,6 +213,10 @@ let currentDrawable: Drawable | null = null;
 
 // simple stroke width state (replaces DrawableObj.get/set)
 let currentStrokeWidth = DEFAULT_STROKE_WIDTH;
+let currentStrokeColor = DEFAULT_STROKE_COLOR;
+function setStrokeColor(c: string) {
+  currentStrokeColor = c;
+}
 function setStrokeWidth(w: number) {
   currentStrokeWidth = Math.max(MIN_STROKE_WIDTH, Math.round(w));
 }
@@ -224,6 +238,13 @@ const thickerBtn = document.getElementById("thicker") as HTMLButtonElement;
 const thinnerBtn = document.getElementById("thinner") as HTMLButtonElement;
 // Stickers are defined in one place below and used to generate buttons/UI
 const toolDrawBtn = document.getElementById("toolDraw") as HTMLButtonElement;
+// RGB sliders and swatch (replace the color input)
+const sliderR = document.getElementById("sliderR") as HTMLInputElement | null;
+const sliderG = document.getElementById("sliderG") as HTMLInputElement | null;
+const sliderB = document.getElementById("sliderB") as HTMLInputElement | null;
+const colorSwatch = document.getElementById("colorSwatch") as
+  | HTMLDivElement
+  | null;
 //for tool preview
 const HOVER_EMIT_INTERVAL = 100; // ms
 let isHovering = false;
@@ -242,6 +263,25 @@ let currentTool: string = "draw";
 function updateThicknessUI() {
   if (!thicknessDisplay) return;
   thicknessDisplay.textContent = String(getStrokeWidth());
+}
+
+// RGB helpers and updater moved to module root so they can be reused elsewhere
+const toHex = (n: number) => {
+  const v = Math.max(0, Math.min(255, Math.round(n)));
+  const s = v.toString(16);
+  return s.length === 1 ? "0" + s : s;
+};
+const rgbToHex = (r: number, g: number, b: number) =>
+  `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+
+function updateColorFromSliders() {
+  const r = sliderR ? Number(sliderR.value) : 0;
+  const g = sliderG ? Number(sliderG.value) : 0;
+  const b = sliderB ? Number(sliderB.value) : 0;
+  const hex = rgbToHex(r, g, b);
+  setStrokeColor(hex);
+  if (colorSwatch) colorSwatch.style.background = hex;
+  drawAndPreview();
 }
 
 // Set drawing properties
@@ -365,7 +405,7 @@ function drawAndPreview() {
 canvas.addEventListener("mousedown", (e) => {
   // start a new stroke or place a sticker based on the current tool
   if (currentTool === "draw") {
-    const stroke = makeStrokeDrawable(getStrokeWidth());
+    const stroke = makeStrokeDrawable(getStrokeWidth(), currentStrokeColor);
     stroke.points.push({ x: e.offsetX, y: e.offsetY, t: Date.now() });
     pushPending(stroke);
     currentDrawable = stroke;
@@ -479,6 +519,16 @@ if (stickerContainer) {
     });
     stickerContainer.appendChild(btn);
   }
+
+  // ensure UI shows initial color (black)
+  if (sliderR) sliderR.value = String(0);
+  if (sliderG) sliderG.value = String(0);
+  if (sliderB) sliderB.value = String(0);
+  if (colorSwatch) colorSwatch.style.background = currentStrokeColor;
+
+  if (sliderR) sliderR.addEventListener("input", updateColorFromSliders);
+  if (sliderG) sliderG.addEventListener("input", updateColorFromSliders);
+  if (sliderB) sliderB.addEventListener("input", updateColorFromSliders);
   // wire the Add Sticker button to prompt the user and append a new sticker
   const addStickerBtnEl = document.getElementById(
     "addStickerBtn",
